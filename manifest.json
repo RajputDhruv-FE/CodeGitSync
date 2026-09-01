@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "LeetCode GitHub Sync",
+  "version": "1.0.0",
+  "description": "Automatically detect accepted LeetCode submissions.",
+
+  "permissions": [
+    "downloads"
+  ],
+
+  "background": {
+    "service_worker": "dist/background.js"
+  },
+
+  "content_scripts": [
+    {
+      "matches": [
+        "https://leetcode.com/problems/*"
+      ],
+      "js": [
+        "dist/interceptor.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://leetcode.com/problems/*"
+      ],
+      "js": [
+        "dist/content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
