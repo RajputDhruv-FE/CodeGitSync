@@ -8,7 +8,8 @@
     "storage"
   ],
   "host_permissions": [
-    "http://localhost:4000/*"
+    
+    "https://code-git-sync.onrender.com/*"
   ],
   "background": {
     "service_worker": "dist/background.js"
