@@ -809,3 +809,171 @@ console.log(
 console.log(
   problemInfo
 );
+
+const button =
+  document.createElement("button");
+
+button.textContent =
+  "Connect GitHub";
+
+button.style.position =
+  "fixed";
+
+button.style.bottom =
+  "20px";
+
+button.style.right =
+  "20px";
+
+button.style.zIndex =
+  "999999";
+
+button.style.padding =
+  "10px 16px";
+
+button.style.background =
+  "#24292e";
+
+button.style.color =
+  "white";
+
+button.style.border =
+  "none";
+
+button.style.borderRadius =
+  "6px";
+
+button.style.cursor =
+  "pointer";
+
+
+button.addEventListener(
+  "click",
+  () => {
+
+    chrome.runtime.sendMessage(
+      {
+        type: "CONNECT_GITHUB"
+      },
+      (response) => {
+
+        console.log(
+          "GitHub connection response:",
+          response
+        );
+
+
+        if (
+          response?.success
+        ) {
+
+          alert(
+            "GitHub connected successfully!"
+          );
+
+        } else {
+
+          alert(
+            "GitHub connection failed: " +
+            response?.error
+          );
+
+        }
+
+      }
+    );
+
+  }
+);
+
+
+document.body.appendChild(button);
+
+
+const githubTestButton =
+  document.createElement("button");
+
+githubTestButton.textContent =
+  "🚀 Test GitHub Push";
+
+githubTestButton.style.position =
+  "fixed";
+
+githubTestButton.style.bottom =
+  "70px";
+
+githubTestButton.style.right =
+  "20px";
+
+githubTestButton.style.zIndex =
+  "999999";
+
+githubTestButton.style.padding =
+  "12px 18px";
+
+githubTestButton.style.background =
+  "#238636";
+
+githubTestButton.style.color =
+  "white";
+
+githubTestButton.style.border =
+  "none";
+
+githubTestButton.style.borderRadius =
+  "8px";
+
+githubTestButton.style.cursor =
+  "pointer";
+
+githubTestButton.addEventListener(
+  "click",
+  () => {
+    const files: PackageFile[] = [
+      {
+        path: "0001-two-sum/README.md",
+        content:
+          "# Two Sum\n\nTest repository push."
+      },
+      {
+        path: "0001-two-sum/solution.cpp",
+        content:
+          "#include <iostream>\n\nint main() {\n    return 0;\n}\n"
+      }
+    ];
+
+    chrome.runtime.sendMessage(
+      {
+        type: "PUSH_SOLUTION",
+
+        // Repository we want
+        repoName: "leetcode-solutions",
+
+        files,
+
+        // Change to true if you want private
+        privateRepo: false
+      },
+      (response) => {
+        console.log(
+          "GitHub push response:",
+          response
+        );
+
+        if (response?.success) {
+          alert(
+            `Successfully pushed to ${response.repository}`
+          );
+        } else {
+          alert(
+            `GitHub push failed: ${response?.error}`
+          );
+        }
+      }
+    );
+  }
+);
+
+document.body.appendChild(
+  githubTestButton
+);

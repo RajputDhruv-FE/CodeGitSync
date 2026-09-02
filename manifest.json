@@ -4,9 +4,14 @@
   "version": "1.0.0",
   "description": "Automatically detect accepted LeetCode submissions.",
 
-  "permissions": [
-    "downloads"
-  ],
+ "permissions": [
+  "downloads",
+  "identity",
+  "storage"
+],
+"host_permissions": [
+  "http://localhost:4000/*"
+],
 
   "background": {
     "service_worker": "dist/background.js"
