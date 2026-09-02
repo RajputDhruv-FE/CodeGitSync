@@ -1,13 +1,14 @@
 "use strict";
+const GITHUB_REPO_NAME = "leetcode-solutions";
+const GITHUB_PRIVATE_REPO = false;
 let currentSubmission = null;
-console.log("🚀 LeetCode GitHub Sync loaded");
 let waitingForSubmission = false;
-let acceptedDetected = false;
+let acceptedSubmissionId = null;
+console.log("🚀 LeetCode GitHub Sync loaded");
 /**
  * Detect when the user clicks the Submit button.
  *
- * This is mainly used to reset the state before
- * a new submission starts.
+ * This resets the state before a new submission starts.
  */
 function detectSubmitClick() {
     document.addEventListener("click", (event) => {
@@ -19,78 +20,39 @@ function detectSubmitClick() {
         if (!button) {
             return;
         }
-        const buttonText = button.innerText
-            .trim()
-            .toLowerCase();
+        const buttonText = button.innerText.trim().toLowerCase();
         if (buttonText !== "submit") {
             return;
         }
         console.log("📤 Submit button clicked");
         waitingForSubmission = true;
-        acceptedDetected = false;
-        // Clear the previous submission.
+        acceptedSubmissionId = null;
         currentSubmission = null;
         console.log("⏳ Waiting for NEW submission result...");
     }, true);
 }
 /**
  * Handle messages coming from interceptor.ts.
- *
- * interceptor.ts runs in the MAIN world and captures
- * LeetCode's actual network requests.
  */
 window.addEventListener("message", (event) => {
-    // Only accept messages coming from this page itself.
     if (event.source !== window) {
         return;
     }
     const data = event.data;
     if (!data ||
-        data.source !==
-            "leetcode-github-sync") {
+        data.source !== "leetcode-github-sync") {
         return;
     }
-    /**
-     * A new submission was created.
-     *
-     * Contains:
-     *
-     * request:
-     *   lang
-     *   question_id
-     *   typed_code
-     *
-     * response:
-     *   submission_id
-     */
-    if (data.type ===
-        "SUBMISSION_CREATED") {
+    if (data.type === "SUBMISSION_CREATED") {
         handleSubmissionCreated(data.payload);
+        return;
     }
-    /**
-     * LeetCode sends multiple submission
-     * status updates:
-     *
-     * PENDING
-     * PENDING
-     * COMPILING
-     * ...
-     * Accepted
-     */
-    if (data.type ===
-        "SUBMISSION_CHECK") {
+    if (data.type === "SUBMISSION_CHECK") {
         handleSubmissionCheck(data.payload);
     }
 });
 /**
- * Handle the initial submission request.
- *
- * This captures:
- *
- * - submission ID
- * - question ID
- * - programming language
- * - submitted code
+ * Capture the newly created submission.
  */
 function handleSubmissionCreated(payload) {
     const request = payload?.request;
@@ -121,166 +83,149 @@ function handleSubmissionCreated(payload) {
         language: String(language),
         code: String(code)
     };
-    console.log("🎯 Submission captured!");
-    console.log("📦 Current submission:", currentSubmission);
-    console.log("📝 Submitted code:", currentSubmission.code);
+    // The network event itself is enough to identify a new submission,
+    // even if the user submitted through a keyboard shortcut.
+    waitingForSubmission = true;
+    acceptedSubmissionId = null;
+    console.log("🎯 Submission captured!", currentSubmission);
 }
 /**
- * Handle a submission status response.
+ * Handle LeetCode submission status updates.
  */
 function handleSubmissionCheck(result) {
     if (!result) {
         return;
     }
-    const status = result.status_msg ??
-        result.state;
+    const status = result.status_msg ?? result.state;
     console.log("🔍 Submission status:", status);
-    /**
-     * We only process the submission when:
-     *
-     * 1. LeetCode has finished judging it
-     * 2. The result is Accepted
-     */
-    if (result.finished === true &&
-        result.status_msg === "Accepted") {
-        handleAcceptedSubmission(result);
+    if (!waitingForSubmission || !currentSubmission) {
+        return;
     }
+    // Ignore status events belonging to a different submission.
+    if (result.submission_id !== undefined &&
+        String(result.submission_id) !== currentSubmission.submissionId) {
+        console.log("⏭️ Ignoring status for a different submission:", {
+            received: String(result.submission_id),
+            current: currentSubmission.submissionId
+        });
+        return;
+    }
+    // LeetCode's accepted response has status_code 10 and status_msg
+    // "Accepted". We also keep state/finished as compatible fallbacks.
+    const isAccepted = result.status_msg === "Accepted" &&
+        (result.status_code === 10 ||
+            result.state === "SUCCESS" ||
+            result.finished === true);
+    if (!isAccepted) {
+        return;
+    }
+    handleAcceptedSubmission(result);
 }
 /**
  * Handle a successfully accepted submission.
  */
 function handleAcceptedSubmission(result) {
-    /**
-     * Prevent the same Accepted result
-     * from being processed more than once.
-     */
-    if (acceptedDetected) {
-        return;
-    }
-    acceptedDetected = true;
-    waitingForSubmission = false;
-    /**
-     * Make sure we captured the submitted
-     * code first.
-     */
     if (!currentSubmission) {
         console.error("❌ Accepted submission received, but submission data is missing.");
         return;
     }
-    /**
-     * Get the problem information from
-     * the current LeetCode page.
-     */
+    const submissionId = currentSubmission.submissionId;
+    // Prevent duplicate Accepted status responses for the same submission.
+    if (acceptedSubmissionId === submissionId) {
+        return;
+    }
+    acceptedSubmissionId = submissionId;
+    waitingForSubmission = false;
     const problemInfo = getProblemInfo();
     if (!problemInfo) {
         console.error("❌ Could not get problem information.");
+        showNotification("⚠️ Accepted, but problem information could not be read.", false);
         return;
     }
-    /**
-     * Build the complete submission object.
-     */
     const submission = {
-        submissionId: currentSubmission.submissionId,
+        submissionId,
         questionId: currentSubmission.questionId,
         language: currentSubmission.language,
         code: currentSubmission.code,
-        status: String(result.status_msg),
+        status: "Accepted",
         problem: problemInfo
     };
-    console.log("🎉 ACCEPTED SUBMISSION");
-    console.log("📦 Complete submission:", submission);
-    /**
-     * Create the solution package.
-     */
+    console.log("🎉 ACCEPTED SUBMISSION", submission);
     createSolutionPackage(submission);
-    /**
-     * Show success notification.
-     */
-    showNotification();
 }
 /**
- * Create the files that will make up
- * the LeetCode solution package.
+ * Create the files used by both local download and GitHub sync.
  *
- * Example:
+ * GitHub paths:
+ *   0001-two-sum/README.md
+ *   0001-two-sum/solution.cpp
  *
- * leetcode-solutions/
- * └── 0001-two-sum/
- *     ├── README.md
- *     └── solution.cpp
+ * Local download paths:
+ *   leetcode-solutions/0001-two-sum/README.md
+ *   leetcode-solutions/0001-two-sum/solution.cpp
  */
 function createSolutionPackage(submission) {
     console.log("📁 Creating solution package...");
     const problem = submission.problem;
-    /**
-     * Create a safe folder name.
-     *
-     * Example:
-     *
-     * 1 + two-sum
-     *
-     * becomes:
-     *
-     * 0001-two-sum
-     */
     const folderName = createFolderName(problem.number, problem.slug);
-    /**
-     * Determine the source-code
-     * file extension.
-     */
     const extension = getFileExtension(submission.language);
-    /**
-     * Create the paths.
-     */
-    const solutionPath = `leetcode-solutions/${folderName}/solution.${extension}`;
-    const readmePath = `leetcode-solutions/${folderName}/README.md`;
-    /**
-     * For Version 1, the README contains
-     * only the LeetCode problem description.
-     */
-    const readmeContent = problem.description;
-    const files = [
+    const githubFiles = [
         {
-            path: readmePath,
-            content: readmeContent
+            path: `${folderName}/README.md`,
+            content: problem.description
         },
         {
-            path: solutionPath,
+            path: `${folderName}/solution.${extension}`,
             content: submission.code
         }
     ];
+    const downloadFiles = githubFiles.map((file) => ({
+        path: `leetcode-solutions/${file.path}`,
+        content: file.content
+    }));
     console.log("📦 Package folder:", folderName);
-    console.log("📄 README path:", readmePath);
-    console.log("💻 Solution path:", solutionPath);
-    console.log("📦 Files:", files);
-    /**
-     * Send the files to background.ts.
-     *
-     * background.ts is responsible for
-     * downloading them.
-     */
+    console.log("📄 GitHub files:", githubFiles);
+    // Always keep the existing local download behavior.
     chrome.runtime.sendMessage({
         type: "DOWNLOAD_SOLUTION_PACKAGE",
-        files
+        files: downloadFiles
     }, (response) => {
         if (chrome.runtime.lastError) {
-            console.error("❌ Failed to communicate with background worker:", chrome.runtime.lastError.message);
+            console.error("❌ Failed to communicate with background worker for download:", chrome.runtime.lastError.message);
             return;
         }
-        console.log("✅ Solution package sent to background worker.", response);
+        if (response?.success) {
+            console.log("✅ Local solution package download started.");
+        }
+        else {
+            console.error("❌ Local solution package download failed:", response?.error);
+        }
+    });
+    // Automatically push the accepted solution to GitHub.
+    showNotification("🎉 Accepted! Syncing solution to GitHub...", true);
+    chrome.runtime.sendMessage({
+        type: "PUSH_SOLUTION",
+        repoName: GITHUB_REPO_NAME,
+        files: githubFiles,
+        privateRepo: GITHUB_PRIVATE_REPO,
+        submissionId: submission.submissionId
+    }, (response) => {
+        if (chrome.runtime.lastError) {
+            console.error("❌ Failed to communicate with background worker for GitHub push:", chrome.runtime.lastError.message);
+            showNotification("⚠️ Saved locally, but GitHub sync failed.", false);
+            return;
+        }
+        console.log("🚀 GitHub push response:", response);
+        if (response?.success) {
+            showNotification(`✅ Synced to GitHub: ${response.repository}`, true);
+        }
+        else {
+            showNotification(`⚠️ Saved locally, but GitHub sync failed: ${response?.error ?? "Unknown error"}`, false);
+        }
     });
 }
 /**
  * Create the solution folder name.
- *
- * Example:
- *
- * number = 1
- * slug   = two-sum
- *
- * result:
- *
- * 0001-two-sum
  */
 function createFolderName(number, slug) {
     const paddedNumber = String(number).padStart(4, "0");
@@ -291,13 +236,10 @@ function createFolderName(number, slug) {
     return `${paddedNumber}-${safeSlug}`;
 }
 /**
- * Convert LeetCode's language name
- * into a file extension.
+ * Convert LeetCode's language name into a file extension.
  */
 function getFileExtension(language) {
-    const normalized = language
-        .toLowerCase()
-        .trim();
+    const normalized = language.toLowerCase().trim();
     const extensions = {
         cpp: "cpp",
         "c++": "cpp",
@@ -320,89 +262,36 @@ function getFileExtension(language) {
         scala: "scala",
         dart: "dart"
     };
-    /**
-     * Use the known extension if available.
-     */
-    if (extensions[normalized]) {
-        return extensions[normalized];
-    }
-    /**
-     * Fallback:
-     *
-     * Convert unknown language names
-     * into a reasonably safe extension.
-     */
-    return normalized
-        .replace(/[^a-z0-9]+/g, "") || "txt";
+    return (extensions[normalized] ??
+        normalized.replace(/[^a-z0-9]+/g, "")) ||
+        "txt";
 }
 /**
- * Get the current LeetCode problem
- * information from the page.
+ * Get the current LeetCode problem information from the page.
  */
 function getProblemInfo() {
-    /**
-     * Get problem slug from URL.
-     *
-     * Example:
-     *
-     * /problems/two-sum/
-     *
-     * becomes:
-     *
-     * two-sum
-     */
     const match = window.location.pathname.match(/\/problems\/([^/]+)/);
     if (!match) {
         console.error("❌ Could not find problem slug");
         return null;
     }
     const slug = match[1];
-    /**
-     * Get problem title.
-     *
-     * Example:
-     *
-     * 1. Two Sum
-     */
     const titleElement = document.querySelector(`a[href="/problems/${slug}/"]`);
-    const fullTitle = titleElement
-        ?.textContent
-        ?.trim();
+    const fullTitle = titleElement?.textContent?.trim();
     if (!fullTitle) {
         console.error("❌ Could not find problem title");
         return null;
     }
-    /**
-     * Separate problem number
-     * and title.
-     *
-     * "1. Two Sum"
-     *
-     * becomes:
-     *
-     * number = 1
-     * title = "Two Sum"
-     */
-    const titleMatch = fullTitle.match(/^(\d+)\.\s*(.+)$/);
+    const titleMatch = fullTitle.match(/^([0-9]+)\.\s*(.+)$/);
     if (!titleMatch) {
         console.error("❌ Could not separate problem number and title");
         return null;
     }
     const number = Number(titleMatch[1]);
     const title = titleMatch[2];
-    /**
-     * Get the problem description.
-     *
-     * We use the stable
-     * data-track-load attribute instead
-     * of generated CSS class names.
-     */
     const descriptionElement = document.querySelector('[data-track-load="description_content"]');
-    const description = descriptionElement
-        ?.textContent
-        ?.trim();
-    const descriptionHtml = descriptionElement
-        ?.innerHTML ?? "";
+    const description = descriptionElement?.textContent?.trim();
+    const descriptionHtml = descriptionElement?.innerHTML ?? "";
     if (!description) {
         console.error("❌ Could not find problem description");
         return null;
@@ -416,32 +305,23 @@ function getProblemInfo() {
     };
 }
 /**
- * Show success notification.
+ * Show a temporary status notification.
  */
-function showNotification() {
+function showNotification(message, success) {
     const notification = document.createElement("div");
-    notification.textContent =
-        "🎉 LeetCode submission accepted!";
-    notification.style.position =
-        "fixed";
-    notification.style.top =
-        "20px";
-    notification.style.right =
-        "20px";
-    notification.style.zIndex =
-        "999999";
-    notification.style.padding =
-        "15px 20px";
-    notification.style.borderRadius =
-        "8px";
-    notification.style.background =
-        "#22c55e";
-    notification.style.color =
-        "white";
-    notification.style.fontSize =
-        "16px";
-    notification.style.fontWeight =
-        "bold";
+    notification.textContent = message;
+    notification.style.position = "fixed";
+    notification.style.top = "20px";
+    notification.style.right = "20px";
+    notification.style.zIndex = "999999";
+    notification.style.maxWidth = "420px";
+    notification.style.padding = "15px 20px";
+    notification.style.borderRadius = "8px";
+    notification.style.background = success ? "#22c55e" : "#dc2626";
+    notification.style.color = "white";
+    notification.style.fontSize = "14px";
+    notification.style.fontWeight = "bold";
+    notification.style.boxShadow = "0 4px 12px rgba(0,0,0,0.25)";
     document.body.appendChild(notification);
     setTimeout(() => {
         notification.remove();
@@ -453,9 +333,35 @@ function showNotification() {
 detectSubmitClick();
 console.log("👀 Waiting for Submit...");
 /**
- * Get problem information once
- * when the page loads.
+ * GitHub connection button.
  */
-const problemInfo = getProblemInfo();
-console.log("📚 Problem Information:");
-console.log(problemInfo);
+const connectButton = document.createElement("button");
+connectButton.textContent = "Connect GitHub";
+connectButton.style.position = "fixed";
+connectButton.style.bottom = "20px";
+connectButton.style.right = "20px";
+connectButton.style.zIndex = "999999";
+connectButton.style.padding = "10px 16px";
+connectButton.style.background = "#24292e";
+connectButton.style.color = "white";
+connectButton.style.border = "none";
+connectButton.style.borderRadius = "6px";
+connectButton.style.cursor = "pointer";
+connectButton.addEventListener("click", () => {
+    chrome.runtime.sendMessage({ type: "CONNECT_GITHUB" }, (response) => {
+        if (chrome.runtime.lastError) {
+            console.error("❌ GitHub connection request failed:", chrome.runtime.lastError.message);
+            alert("GitHub connection failed.");
+            return;
+        }
+        console.log("GitHub connection response:", response);
+        if (response?.success) {
+            alert("GitHub connected successfully!");
+        }
+        else {
+            alert("GitHub connection failed: " +
+                (response?.error ?? "Unknown error"));
+        }
+    });
+});
+document.body.appendChild(connectButton);
