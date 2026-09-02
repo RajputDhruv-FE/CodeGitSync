@@ -21,6 +21,7 @@ interface PushSolutionMessage {
   repoName: string;
   files: PackageFile[];
   privateRepo?: boolean;
+  submissionId?: string;
 }
 
 interface GitHubUser {
@@ -731,7 +732,8 @@ async function pushFile(
 async function pushSolution(
   repoName: string,
   files: PackageFile[],
-  privateRepo: boolean = false
+  privateRepo: boolean = false,
+  submissionId?: string
 ): Promise<{
   success: boolean;
   repository: string;
@@ -805,12 +807,13 @@ async function pushSolution(
   const token =
     githubAuth.access_token;
 
-    await checkGitHubInstallations(token);
-
-
   console.log(
     "🔑 GitHub access token found"
   );
+
+  if (submissionId) {
+    console.log(`🆔 Syncing submission: ${submissionId}`);
+  }
 
 
   // ------------------------------------------------
@@ -997,7 +1000,9 @@ chrome.runtime.onMessage.addListener(
         message.files,
 
         message.privateRepo ??
-          false
+          false,
+
+        message.submissionId
 
       )
 
@@ -1200,13 +1205,3 @@ chrome.runtime.onMessage.addListener(
     return;
   }
 );
-
-async function checkGitHubInstallations(token: string) {
-  const response = await githubRequest(token, "/user/installations");
-
-  const data = await response.json();
-
-  console.log("🔍 GitHub installations:", data);
-
-  return data;
-}

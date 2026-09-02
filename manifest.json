@@ -3,20 +3,16 @@
   "name": "LeetCode GitHub Sync",
   "version": "1.0.0",
   "description": "Automatically detect accepted LeetCode submissions.",
-
- "permissions": [
-  "downloads",
-  "identity",
-  "storage"
-],
-"host_permissions": [
-  "http://localhost:4000/*"
-],
-
+  "permissions": [
+    "identity",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://localhost:4000/*"
+  ],
   "background": {
     "service_worker": "dist/background.js"
   },
-
   "content_scripts": [
     {
       "matches": [
