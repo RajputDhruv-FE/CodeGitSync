@@ -3,6 +3,9 @@
   "name": "LeetCode GitHub Sync",
   "version": "1.0.0",
   "description": "Automatically detect accepted LeetCode submissions.",
+
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA8aSE4pi7aAf2pYe8k02hy0Xi5sKucbODq0cS/r8KYW/AaBDd9qvwDaSEjbdaeXDb1pyEOjKXLBCPBsYhHsGCitU75szjcNE6CTNIVbCJ4IGDu1FOeDPUzENFTArsEGshfbLzh4jDwm0cTcqkb6CBnfOGnjNzxHpEFz46LKzor87m6DTO+pPskgSwcAon+xATvLSLJxkUO//YK/YTPxvhFP/MSO+r0+9EhqMtT3buShIPbkZJomE6v4pvEOBiS9bIeyYqy4dypsD7+A+aJpcHcUtdIuKRCzO3F7q+5DSxe5ZTfAWX4aXWl7B2xI42zxCuslDVbhLfBJ+KxAR08/TklwIDAQAB",
+
   "permissions": [
     "identity",
     "storage"

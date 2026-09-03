@@ -66,7 +66,7 @@ const GITHUB_CLIENT_ID =
   "Iv23liMHh6YPolYNJoPW";
 
 const GITHUB_REDIRECT_URI =
-  "https://kpidkggeaoidlnojddjchfcngfhmmdnb.chromiumapp.org/";
+  "https://mcchejfbeinoocgppfoheepdokjjlgga.chromiumapp.org/";
 
 const BACKEND_URL =
   "https://code-git-sync.onrender.com";

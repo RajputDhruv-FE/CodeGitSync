@@ -6,7 +6,7 @@
 // Configuration
 // ==================================================
 const GITHUB_CLIENT_ID = "Iv23liMHh6YPolYNJoPW";
-const GITHUB_REDIRECT_URI = "https://kpidkggeaoidlnojddjchfcngfhmmdnb.chromiumapp.org/";
+const GITHUB_REDIRECT_URI = "https://mcchejfbeinoocgppfoheepdokjjlgga.chromiumapp.org/";
 const BACKEND_URL = "https://code-git-sync.onrender.com";
 // "http://localhost:4000";
 const GITHUB_API = "https://api.github.com";
