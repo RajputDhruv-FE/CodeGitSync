@@ -11,6 +11,8 @@ const BACKEND_URL = "https://code-git-sync.onrender.com";
 // "http://localhost:4000";
 const GITHUB_API = "https://api.github.com";
 const GITHUB_API_VERSION = "2022-11-28";
+const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000; // 5 minutes
+let refreshPromise = null;
 console.log("🚀 Background service worker loaded");
 // ==================================================
 // PKCE Helpers
@@ -60,7 +62,6 @@ async function connectGitHub() {
     authUrl.searchParams.set("code_challenge", codeChallenge);
     authUrl.searchParams.set("code_challenge_method", "S256");
     console.log("🌐 Opening GitHub authorization...");
-    console.log("GitHub OAuth URL:", authUrl.toString());
     // ------------------------------------------------
     // Open GitHub authorization page
     // ------------------------------------------------
@@ -128,17 +129,102 @@ async function connectGitHub() {
     // ------------------------------------------------
     // Store authentication information
     // ------------------------------------------------
+    const githubAuth = buildGitHubAuth(data);
     await chrome.storage.local.set({
-        githubAuth: data
+        githubAuth
     });
     console.log("💾 GitHub authentication stored");
-    return data;
+    return githubAuth;
+}
+// ==================================================
+// GitHub Token Helpers
+// ==================================================
+function buildGitHubAuth(data) {
+    const now = Date.now();
+    return {
+        ...data,
+        expires_at: data.expires_in
+            ? now +
+                data.expires_in * 1000
+            : undefined,
+        refresh_token_expires_at: data.refresh_token_expires_in
+            ? now +
+                data.refresh_token_expires_in * 1000
+            : undefined
+    };
+}
+async function refreshGitHubToken(refreshToken) {
+    console.log("🔄 Refreshing GitHub access token...");
+    const response = await fetch(`${BACKEND_URL}/auth/github/refresh`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            refresh_token: refreshToken
+        })
+    });
+    const data = await response.json();
+    if (!response.ok ||
+        !data.access_token ||
+        !data.refresh_token) {
+        console.error("❌ GitHub token refresh failed:", data.error);
+        await chrome.storage.local.remove("githubAuth");
+        throw new Error("GitHub session expired. Please reconnect GitHub.");
+    }
+    const githubAuth = buildGitHubAuth(data);
+    await chrome.storage.local.set({
+        githubAuth
+    });
+    console.log("✅ GitHub access token refreshed");
+    return githubAuth.access_token;
+}
+async function getValidGitHubAccessToken() {
+    const result = await chrome.storage.local.get("githubAuth");
+    const githubAuth = result.githubAuth;
+    if (!githubAuth ||
+        !githubAuth.access_token) {
+        throw new Error("GitHub is not connected");
+    }
+    const now = Date.now();
+    // If the refresh token itself has expired,
+    // the user must authenticate again.
+    if (githubAuth.refresh_token_expires_at &&
+        now >=
+            githubAuth.refresh_token_expires_at) {
+        await chrome.storage.local.remove("githubAuth");
+        throw new Error("GitHub session expired. Please reconnect GitHub.");
+    }
+    const expiresAt = githubAuth.expires_at;
+    // Access token is still valid and has
+    // more than the refresh buffer remaining.
+    if (expiresAt &&
+        now <
+            expiresAt -
+                TOKEN_REFRESH_BUFFER_MS) {
+        return githubAuth.access_token;
+    }
+    // No refresh token available.
+    if (!githubAuth.refresh_token) {
+        await chrome.storage.local.remove("githubAuth");
+        throw new Error("GitHub session expired. Please reconnect GitHub.");
+    }
+    // Another GitHub request is already
+    // refreshing the token.
+    if (refreshPromise) {
+        return refreshPromise;
+    }
+    refreshPromise =
+        refreshGitHubToken(githubAuth.refresh_token).finally(() => {
+            refreshPromise = null;
+        });
+    return refreshPromise;
 }
 // ==================================================
 // GitHub API Helper
 // ==================================================
-async function githubRequest(token, endpoint, options = {}) {
-    const response = await fetch(`${GITHUB_API}${endpoint}`, {
+async function rawGitHubRequest(token, endpoint, options = {}) {
+    return fetch(`${GITHUB_API}${endpoint}`, {
         ...options,
         headers: {
             Accept: "application/vnd.github+json",
@@ -148,12 +234,37 @@ async function githubRequest(token, endpoint, options = {}) {
             ...(options.headers || {})
         }
     });
-    //   console.log("GitHub API:", endpoint);
-    //   console.log("Status:", response.status);
-    //   console.log(
-    //     "Required permissions:",
-    //     response.headers.get("X-Accepted-GitHub-Permissions")
-    //   );
+}
+async function githubRequest(_token, endpoint, options = {}) {
+    // Get the newest valid token
+    let token = await getValidGitHubAccessToken();
+    let response = await rawGitHubRequest(token, endpoint, options);
+    // Token may have expired or been revoked
+    // between the validity check and the API request.
+    if (response.status === 401) {
+        console.log("⚠️ GitHub returned 401. Attempting token refresh...");
+        const result = await chrome.storage.local.get("githubAuth");
+        const githubAuth = result.githubAuth;
+        if (!githubAuth?.refresh_token) {
+            await chrome.storage.local.remove("githubAuth");
+            throw new Error("GitHub session expired. Please reconnect GitHub.");
+        }
+        if (refreshPromise) {
+            token =
+                await refreshPromise;
+        }
+        else {
+            refreshPromise =
+                refreshGitHubToken(githubAuth.refresh_token).finally(() => {
+                    refreshPromise = null;
+                });
+            token =
+                await refreshPromise;
+        }
+        // Retry exactly once.
+        response =
+            await rawGitHubRequest(token, endpoint, options);
+    }
     return response;
 }
 // ==================================================
@@ -391,60 +502,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         });
         // Keep message channel open
         return true;
-    }
-    // ==================================================
-    // DOWNLOAD SOLUTION PACKAGE
-    // ==================================================
-    if (message.type ===
-        "DOWNLOAD_SOLUTION_PACKAGE") {
-        console.log("📦 Received solution package");
-        const files = message.files;
-        // ------------------------------------------------
-        // Validate files
-        // ------------------------------------------------
-        if (!files ||
-            files.length === 0) {
-            console.error("❌ No files received");
-            sendResponse({
-                success: false,
-                error: "No files received"
-            });
-            return;
-        }
-        console.log(`📦 Number of files: ${files.length}`);
-        // ------------------------------------------------
-        // Download every file
-        // ------------------------------------------------
-        for (const file of files) {
-            console.log("📄 Preparing file:", file.path);
-            // ------------------------------------------------
-            // Convert content into data URL
-            // ------------------------------------------------
-            const dataUrl = "data:text/plain;charset=utf-8," +
-                encodeURIComponent(file.content);
-            chrome.downloads.download({
-                url: dataUrl,
-                filename: file.path,
-                saveAs: false,
-                conflictAction: "overwrite"
-            }, (downloadId) => {
-                if (chrome.runtime.lastError) {
-                    console.error("❌ Download failed:", chrome.runtime
-                        .lastError
-                        .message);
-                    return;
-                }
-                console.log("✅ Download started:", file.path);
-                console.log("Download ID:", downloadId);
-            });
-        }
-        // ------------------------------------------------
-        // Tell sender the package was received
-        // ------------------------------------------------
-        sendResponse({
-            success: true
-        });
-        return;
     }
     // ==================================================
     // Unknown Message
